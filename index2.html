@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  />
+  <title>Tracing Cam</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background: #000;
+      color: #fff;
+    }
+
+    body {
+      position: fixed;
+      inset: 0;
+    }
+
+    .app {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+
+    video#camera {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+      z-index: 1;
+    }
+
+    .overlay-stage {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      touch-action: none;
+      overflow: hidden;
+    }
+
+    #overlayImage {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      max-width: none;
+      max-height: none;
+      transform-origin: center center;
+      user-select: none;
+      -webkit-user-drag: none;
+      pointer-events: none;
+      display: none;
+    }
+
+    .grid {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      pointer-events: none;
+      display: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.20) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.20) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+
+    .controls {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
+      background: linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.70));
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .row.compact {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button, .file-btn {
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #1f1f1f;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:active, .file-btn:active {
+      transform: scale(0.98);
+    }
+
+    .file-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    .status {
+      position: absolute;
+      top: calc(10px + env(safe-area-inset-top));
+      left: 10px;
+      right: 10px;
+      z-index: 30;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.65);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .hint {
+      position: absolute;
+      top: calc(62px + env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      font-size: 12px;
+      background: rgba(0,0,0,0.55);
+      padding: 8px 12px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <video id="camera" autoplay playsinline muted></video>
+
+    <div class="overlay-stage" id="overlayStage">
+      <img id="overlayImage" alt="Vorlage" />
+      <div class="grid" id="grid"></div>
+    </div>
+
+    <div class="status" id="status">
+      Kamera wird vorbereitet...
+    </div>
+
+    <div class="hint" id="hint">
+      Vorlage mit 1 Finger verschieben
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <label class="file-btn" for="fileInput">Bild wählen</label>
+        <input id="fileInput" type="file" accept="image/*" />
+
+        <button id="cameraBtn">Kamera starten</button>
+        <button id="switchBtn">Kamera wechseln</button>
+        <button id="gridBtn">Raster</button>
+        <button id="mirrorBtn">Spiegeln</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+
+      <div class="row compact">
+        <span>Deckkraft</span>
+        <input id="opacitySlider" type="range" min="0.05" max="1" step="0.01" value="0.65" />
+      </div>
+
+      <div class="row compact">
+        <span>Zoom</span>
+        <input id="scaleSlider" type="range" min="0.2" max="4" step="0.01" value="1" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById("fileInput");
+    const overlayImage = document.getElementById("overlayImage");
+    const overlayStage = document.getElementById("overlayStage");
+    const opacitySlider = document.getElementById("opacitySlider");
+    const scaleSlider = document.getElementById("scaleSlider");
+    const mirrorBtn = document.getElementById("mirrorBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const gridBtn = document.getElementById("gridBtn");
+    const grid = document.getElementById("grid");
+    const camera = document.getElementById("camera");
+    const cameraBtn = document.getElementById("cameraBtn");
+    const switchBtn = document.getElementById("switchBtn");
+    const statusBox = document.getElementById("status");
+    const hint = document.getElementById("hint");
+
+    let posX = 0;
+    let posY = 0;
+    let scale = 1;
+    let opacity = 0.65;
+    let mirrored = false;
+    let dragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let stream = null;
+    let facingMode = "environment";
+    let gridVisible = false;
+
+    function setStatus(text) {
+      statusBox.textContent = text;
+    }
+
+    function updateOverlay() {
+      overlayImage.style.opacity = opacity;
+      overlayImage.style.transform =
+        `translate(-50%, -50%) translate(${posX}px, ${posY}px) scale(${mirrored ? -scale : scale}, ${scale})`;
+    }
+
+    function resetOverlay() {
+      posX = 0;
+      posY = 0;
+      scale = 1;
+      opacity = 0.65;
+      mirrored = false;
+      scaleSlider.value = "1";
+      opacitySlider.value = "0.65";
+      updateOverlay();
+    }
+
+    async function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+    }
+
+    async function startCamera() {
+      try {
+        await stopCamera();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setStatus("Kamera wird von diesem Browser nicht unterstützt.");
+          return;
+        }
+
+        const constraints = {
+          audio: false,
+          video: {
+            facingMode: { ideal: facingMode }
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        camera.srcObject = stream;
+        setStatus(`Kamera aktiv (${facingMode === "environment" ? "hinten" : "vorne"}).`);
+      } catch (err) {
+        console.error(err);
+        setStatus("Kamera konnte nicht gestartet werden. Erlaube den Kamerazugriff in Safari.");
+      }
+    }
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        overlayImage.src = event.target.result;
+        overlayImage.style.display = "block";
+        hint.classList.remove("hidden");
+        resetOverlay();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    opacitySlider.addEventListener("input", () => {
+      opacity = parseFloat(opacitySlider.value);
+      updateOverlay();
+    });
+
+    scaleSlider.addEventListener("input", () => {
+      scale = parseFloat(scaleSlider.value);
+      updateOverlay();
+    });
+
+    mirrorBtn.addEventListener("click", () => {
+      mirrored = !mirrored;
+      updateOverlay();
+    });
+
+    resetBtn.addEventListener("click", () => {
+      resetOverlay();
+    });
+
+    gridBtn.addEventListener("click", () => {
+      gridVisible = !gridVisible;
+      grid.style.display = gridVisible ? "block" : "none";
+    });
+
+    cameraBtn.addEventListener("click", async () => {
+      await startCamera();
+    });
+
+    switchBtn.addEventListener("click", async () => {
+      facingMode = facingMode === "environment" ? "user" : "environment";
+      await startCamera();
+    });
+
+    function getPoint(event) {
+      if (event.touches && event.touches.length > 0) {
+        return {
+          x: event.touches[0].clientX,
+          y: event.touches[0].clientY
+        };
+      }
+      return {
+        x: event.clientX,
+        y: event.clientY
+      };
+    }
+
+    function dragStart(event) {
+      if (overlayImage.style.display === "none") return;
+      dragging = true;
+      const p = getPoint(event);
+      dragOffsetX = p.x - posX;
+      dragOffsetY = p.y - posY;
+    }
+
+    function dragMove(event) {
+      if (!dragging) return;
+      event.preventDefault();
+      const p = getPoint(event);
+      posX = p.x - dragOffsetX;
+      posY = p.y - dragOffsetY;
+      updateOverlay();
+    }
+
+    function dragEnd() {
+      dragging = false;
+    }
+
+    overlayStage.addEventListener("mousedown", dragStart);
+    window.addEventListener("mousemove", dragMove);
+    window.addEventListener("mouseup", dragEnd);
+
+    overlayStage.addEventListener("touchstart", dragStart, { passive: false });
+    window.addEventListener("touchmove", dragMove, { passive: false });
+    window.addEventListener("touchend", dragEnd);
+
+    updateOverlay();
+    setStatus("Öffne die Seite auf dem iPhone und tippe auf „Kamera starten“.");
+  </script>
+</body>
+</html>
