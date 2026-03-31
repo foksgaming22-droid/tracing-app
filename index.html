@@ -174,6 +174,10 @@
       justify-content: center;
     }
 
+    .camera-on {
+      background: #7a1f1f;
+    }
+
     input[type="file"] {
       display: none;
     }
@@ -195,10 +199,6 @@
       backdrop-filter: blur(10px);
       font-size: 18px;
     }
-
-    .hidden {
-      display: none !important;
-    }
   </style>
 </head>
 <body>
@@ -212,7 +212,7 @@
 
     <div class="top-ui" id="topUi">
       <div class="status" id="status">
-        Seite geladen. Tippe auf „Kamera starten“.
+        Seite geladen. Tippe auf „Kamera“.
       </div>
       <div class="hint" id="hint">
         1 Finger = verschieben · 2 Finger = zoomen
@@ -316,16 +316,32 @@
       updateOverlay();
     }
 
+    function updateCameraButton() {
+      if (stream) {
+        cameraBtn.textContent = "Kamera aus";
+        cameraBtn.classList.add("camera-on");
+      } else {
+        cameraBtn.textContent = "Kamera";
+        cameraBtn.classList.remove("camera-on");
+      }
+    }
+
     async function stopCamera() {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
       }
+      camera.srcObject = null;
+      updateCameraButton();
     }
 
-    async function startCamera() {
+    async function toggleCamera() {
       try {
-        await stopCamera();
+        if (stream) {
+          await stopCamera();
+          setStatus("Kamera ausgeschaltet.");
+          return;
+        }
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           setStatus("Kamera wird auf diesem Gerät oder Browser nicht unterstützt.");
@@ -341,10 +357,23 @@
 
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         camera.srcObject = stream;
+        updateCameraButton();
         setStatus(`Kamera aktiv (${facingMode === "environment" ? "hinten" : "vorne"}).`);
       } catch (error) {
         console.error(error);
         setStatus("Kamera konnte nicht gestartet werden. Prüfe Safari-Berechtigungen.");
+        await stopCamera();
+      }
+    }
+
+    async function switchCamera() {
+      facingMode = facingMode === "environment" ? "user" : "environment";
+
+      if (stream) {
+        await stopCamera();
+        await toggleCamera();
+      } else {
+        setStatus(`Kamera-Seite gewählt: ${facingMode === "environment" ? "hinten" : "vorne"}.`);
       }
     }
 
@@ -390,12 +419,11 @@
     });
 
     cameraBtn.addEventListener("click", async () => {
-      await startCamera();
+      await toggleCamera();
     });
 
     switchBtn.addEventListener("click", async () => {
-      facingMode = facingMode === "environment" ? "user" : "environment";
-      await startCamera();
+      await switchCamera();
     });
 
     toggleUiBtn.addEventListener("click", () => {
@@ -485,6 +513,7 @@
 
     updateOverlay();
     updateGrid();
+    updateCameraButton();
   </script>
 </body>
 </html>
